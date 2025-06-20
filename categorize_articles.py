@@ -168,4 +168,3 @@ for specialty, data in sorted(specialty_data.items(), key=lambda x: len(x[1]["pa
         print(f"  • {keyword} ({count} papers)")
 
 print("\n" + "="*60)
-print("SAVING RESULTS...")
