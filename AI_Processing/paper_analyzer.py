@@ -23,7 +23,12 @@ class PaperAnalyzer:
     # Set of valid medical specialties for categorization
     VALID_SPECIALTIES = {
         'Cardiology', 'Oncology', 'Radiology', 'Neurology', 
-        'Surgery', 'Psychiatry', 'Endocrinology', 'General Medicine'
+        'Surgery', 'Psychiatry', 'Endocrinology', 'General Medicine',
+        'Dermatology', 'Gastroenterology', 'Pulmonology', 'Orthopedics',
+        'Ophthalmology', 'Urology', 'Gynecology', 'Pediatrics',
+        'Emergency Medicine', 'Anesthesiology', 'Pathology', 'Immunology',
+        'Infectious Disease', 'Nephrology', 'Hematology', 'Rheumatology',
+        'Medical Imaging', 'Biomedical Engineering', 'Medical AI', 'Clinical Research'
     }
     
     # System prompt that defines the AI's role and analysis requirements
@@ -89,25 +94,27 @@ class PaperAnalyzer:
             for the analysis format and requirements.
         """
         return f"""
-        Analyze this medical research paper:
+        Analyze this medical research paper and provide a JSON response with the exact structure shown below.
         
         Title: {paper.title}
-        Abstract: {paper.abstract[:500]}
+        Abstract: {paper.abstract}
         Conclusion: {paper.conclusion}
-        Authors: {', '.join(paper.authors[:5])}
+        Authors: {', '.join(paper.authors)}
         arXiv Categories: {', '.join(paper.categories)}
         
-        Provide:
-        1. Summary of the paper in one paragraph. Write 2-3 sentences about the abstract and 2-3 sentences about the conclusion.
-        2. Medical specialty (ONE of: {', '.join(sorted(self.VALID_SPECIALTIES))})
-        3. 5 key medical concepts/terms from this research
+        Instructions:
+        1. Write a 2-3 sentence summary of the paper's key findings
+        2. Identify the primary medical specialty from this list: {', '.join(sorted(self.VALID_SPECIALTIES))}
+        3. Extract 5 key medical concepts/terms from this research
         
-        Format your response as a JSON object with the following structure:
+        IMPORTANT: Return ONLY a valid JSON object with this exact structure:
         {{
-            "summary": "summary of the paper",
-            "specialty": "medical specialty",
+            "summary": "2-3 sentence summary of the paper's key findings",
+            "specialty": "exact specialty name from the provided list",
             "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
         }}
+        
+        Do not include any text before or after the JSON object. Ensure all quotes are properly escaped.
         """
     
     def _parse_analysis_response(self, response: str) -> Optional[PaperAnalysis]:
@@ -125,10 +132,18 @@ class PaperAnalyzer:
             required fields, and specialty categorization.
         """
         try:
+            # Clean the response - remove any markdown formatting
+            cleaned_response = response.strip()
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
             # Find JSON object in the response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
             if not json_match:
-                logger.error(f"Could not find JSON in response: {response}")
+                logger.error(f"Could not find JSON in response: {response[:200]}...")
                 return None
                 
             json_str = json_match.group(0)
@@ -148,16 +163,40 @@ class PaperAnalyzer:
             keywords = keywords[:5]
             
             specialty = data.get('specialty')
-            if not isinstance(specialty, str) or specialty not in self.VALID_SPECIALTIES:
-                logger.error(f"Invalid specialty: {specialty}")
+            if not isinstance(specialty, str):
+                logger.error(f"Invalid specialty type: {type(specialty)}")
                 return None
+                
+            # Try to match specialty with valid ones (case-insensitive)
+            specialty_lower = specialty.lower()
+            matched_specialty = None
+            for valid_specialty in self.VALID_SPECIALTIES:
+                if valid_specialty.lower() == specialty_lower:
+                    matched_specialty = valid_specialty
+                    break
+            
+            if not matched_specialty:
+                # Try partial matching for common variations
+                for valid_specialty in self.VALID_SPECIALTIES:
+                    if any(word in specialty_lower for word in valid_specialty.lower().split()):
+                        matched_specialty = valid_specialty
+                        break
+                
+                if not matched_specialty:
+                    logger.error(f"Invalid specialty: {specialty}")
+                    return None
             
             return PaperAnalysis(
-                specialty=specialty,
+                specialty=matched_specialty,
                 keywords=keywords,
                 focus=summary
             )
             
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}")
+            logger.error(f"Response content: {response[:300]}...")
+            return None
         except Exception as e:
             logger.error(f"Error parsing analysis response: {str(e)}")
+            logger.error(f"Response content: {response[:300]}...")
             return None
