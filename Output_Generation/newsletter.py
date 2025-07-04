@@ -70,7 +70,7 @@ class Newsletter:
                 for i, insight in enumerate(cross_specialty_insights, 1):
                     newsletter_lines.append(f"{i}. {insight}")
             else:
-                newsletter_lines.append(emerging_trends)
+                newsletter_lines.append(cross_specialty_insights)
         else:
             newsletter_lines.append("No cross-specialty insights available.")
         newsletter_lines.append("\n" + "="*80)
