@@ -5,7 +5,7 @@ import logging
 import re
 import json
 from typing import Optional
-from utils.token_monitor import TokenMonitor
+from utils.token_monitor import TokenMonitor, TokenUsage
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -51,10 +51,10 @@ class PaperAnalyzer:
             api_key (str): API key for Groq LLM service
             token_monitor (Optional[TokenMonitor]): Token monitor instance for rate limiting
         """
-        self.llm = ChatGroq(api_key=api_key, model="llama3-8b-8192")
+        self.llm = ChatGroq(api_key=api_key, model="llama3-8b-8192", temperature=1.0)
         self.token_monitor = token_monitor or TokenMonitor(max_tokens_per_minute=16000)
     
-    def analyze_paper(self, paper: Paper) -> Optional[PaperAnalysis]:
+    def analyze_paper(self, paper: Paper) -> tuple[Optional[PaperAnalysis], Optional[TokenUsage]]:
         """
         Analyze a paper using AI to determine its specialty and key concepts.
         
@@ -62,42 +62,32 @@ class PaperAnalyzer:
             paper (Paper): The paper to analyze
             
         Returns:
-            Optional[PaperAnalysis]: Analysis results if successful, None if analysis fails
+            tuple[Optional[PaperAnalysis], Optional[TokenUsage]]: Analysis results and token usage if successful, (None, None) if analysis fails
             
         Note:
             The analysis includes specialty categorization, keyword extraction,
             and a focused summary of the paper's main findings.
         """
         prompt = self._create_analysis_prompt(paper)
-        
         try:
-            # Estimate input tokens (rough approximation: 1 token ≈ 4 characters)
-            input_tokens = len(prompt) // 4
-            
+            input_text = self.SYSTEM_ROLE + prompt
+            input_tokens = self.token_monitor.count_tokens(input_text)
             response = self.llm.invoke(
                 input=[
                     {"role": "system", "content": self.SYSTEM_ROLE},
                     {"role": "user", "content": prompt}
                 ]
             )
-            
-            # Estimate output tokens
-            output_tokens = len(response.content) // 4
-            
-            # Record token usage with enhanced tracking
-            if self.token_monitor:
-                self.token_monitor.record_usage(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    call_type="paper_analysis",
-                    prompt_length=len(prompt),
-                    response_length=len(response.content)
-                )
-            
-            return self._parse_analysis_response(response.content)
+            output_tokens = self.token_monitor.count_tokens(str(response.content))
+            usage = self.token_monitor.record_usage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens
+            )
+            result = self._parse_analysis_response(str(response.content))
+            return result, usage
         except Exception as e:
             logger.error(f"Error analyzing paper {paper.paper_id}: {str(e)}")
-            return None
+            return None, None
     
     def _create_analysis_prompt(self, paper: Paper) -> str:
         """
