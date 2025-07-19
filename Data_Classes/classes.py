@@ -1,6 +1,6 @@
 # Standard library imports for data structures and type hints
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Dict, Any
 import datetime
 
 
@@ -36,7 +36,11 @@ class PaperAnalysis:
         specialty (str): The main field or specialty of the paper
         keywords (List[str]): Key terms and concepts from the paper
         focus (str): The primary focus or main contribution of the paper
+        interest_score (float): AI-generated interest rating from 0.0 to 10.0
+        score_breakdown (Optional[Dict[str, Any]]): Detailed breakdown of how the interest score was calculated
     """
     specialty: str
     keywords: List[str]
     focus: str
+    interest_score: float
+    score_breakdown: Optional[Dict[str, Any]] = None

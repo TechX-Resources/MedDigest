@@ -149,7 +149,7 @@ class Newsletter:
         newsletter_lines.append(f"\nGenerated on: {datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')}")
 
         # Save to file
-        filename = f"newsletter_{datetime.datetime.now().strftime('%m_%d_%Y')}.txt"
+        filename = f"Newsletters/newsletter_{datetime.datetime.now().strftime('%m_%d_%Y')}.txt"
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('\n'.join(newsletter_lines))
 

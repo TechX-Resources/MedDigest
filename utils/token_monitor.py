@@ -159,6 +159,21 @@ class TokenMonitor:
         output_cost = (output_tokens / 1_000_000) * self.OUTPUT_COST_PER_MILLION
         return input_cost + output_cost
 
+    def count_tokens(self, text: str) -> int:
+        """
+        Estimate the number of tokens in a text string.
+        
+        Args:
+            text (str): The text to count tokens for
+            
+        Returns:
+            int: Estimated number of tokens (rough approximation: 1 token ≈ 4 characters)
+        """
+        if not text:
+            return 0
+        # Rough approximation: 1 token ≈ 4 characters
+        return len(text) // 4
+
     def get_detailed_stats(self) -> DetailedUsageStats:
         """Calculate comprehensive usage statistics."""
         if not self.usage_history:

@@ -7,6 +7,18 @@ import logging
 import datetime
 import json
 import re
+import time
+from .prompts import (
+    create_batch_analysis_prompt,
+    create_executive_summary_prompt,
+    create_key_discoveries_prompt,
+    create_emerging_trends_prompt,
+    create_medical_impact_prompt,
+    create_cross_specialty_insights_prompt,
+    create_clinical_implications_prompt,
+    create_research_gaps_prompt,
+    create_future_directions_prompt
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +48,38 @@ class ResearchDigest:
         self.llm = self.analyzer.llm
         self.specialty_data: Dict[str, Dict] = {}
         self.batch_analyses: Dict[int, Dict] = {}
+        self.rate_limit_threshold = 14000  # Sleep when approaching 14k tokens (leaving 2k buffer)
+        self.current_minute_tokens = 0
+        self.minute_start_time = time.time()
+
+    def _check_rate_limit(self, estimated_tokens: int) -> None:
+        """
+        Check if we're approaching the rate limit and sleep if necessary.
+        
+        Args:
+            estimated_tokens (int): Estimated tokens for the next operation
+        """
+        current_time = time.time()
+        
+        # Reset counter if a new minute has started
+        if current_time - self.minute_start_time >= 60:
+            self.current_minute_tokens = 0
+            self.minute_start_time = current_time
+        
+        # Check if adding these tokens would exceed our threshold
+        if self.current_minute_tokens + estimated_tokens > self.rate_limit_threshold:
+            # Calculate how long to sleep until the next minute
+            time_elapsed = current_time - self.minute_start_time
+            sleep_time = 60 - time_elapsed
+            
+            if sleep_time > 0:
+                logger.info(f"Approaching rate limit ({self.current_minute_tokens} tokens used). Sleeping for {sleep_time:.1f} seconds...")
+                time.sleep(sleep_time)
+                self.current_minute_tokens = 0
+                self.minute_start_time = time.time()
+        
+        # Update token count for this minute
+        self.current_minute_tokens += estimated_tokens
 
     def generate_digest(self, search_query: str = "all:medical") -> Dict:
         """
@@ -76,11 +120,17 @@ class ResearchDigest:
         for i, paper in enumerate(papers, 1):
             logger.info(f"Analyzing paper {i}/{len(papers)}: {paper.title[:80]}...")
             
-            analysis = self.analyzer.analyze_paper(paper)
-            if not analysis:
+            # Estimate tokens for this paper analysis (rough approximation)
+            estimated_tokens = len(paper.title + paper.abstract + paper.conclusion) // 4 + 500  # Add buffer for prompt and response
+            self._check_rate_limit(estimated_tokens)
+            
+            result = self.analyzer.analyze_paper(paper)
+            if not result or result[0] is None:
                 continue
                 
-            self._update_specialty_data(paper, analysis)
+            analysis, usage = result
+            if analysis is not None:
+                self._update_specialty_data(paper, analysis)
     
     def _update_specialty_data(self, paper: Paper, analysis: PaperAnalysis) -> None:
         """
@@ -108,6 +158,7 @@ class ResearchDigest:
             "abstract": paper.abstract,
             "keywords": analysis.keywords,
             "focus": analysis.focus,
+            "interest_score": analysis.interest_score,
             "date": paper.published.strftime("%Y-%m-%d")
         })
         self.specialty_data[analysis.specialty]["all_keywords"].extend(analysis.keywords)
@@ -154,27 +205,11 @@ class ResearchDigest:
             
             batch_text = "\n".join(batch_info)
             
-            prompt = f"""
-            Analyze the following batch of {len(batch)} medical research papers:
+            # Estimate tokens for batch analysis
+            estimated_tokens = len(batch_text) // 4 + 2000  # Add buffer for prompt and response
+            self._check_rate_limit(estimated_tokens)
             
-            {batch_text}
-            
-            Provide a comprehensive analysis in the following JSON format. IMPORTANT: Return ONLY valid JSON, no additional text:
-            {{
-                "batch_summary": "2-3 paragraph summary focusing on key findings and implications for current medical practices",
-                "significant_findings": ["List of top 5 most significant findings across all papers in this batch"],
-                "major_trends": ["List of 2-3 major trends or patterns identified across multiple papers in this batch"],
-                "medical_impact": "Brief analysis of potential impact on medical practice and patient care",
-                "cross_specialty_insights": "Brief analysis of cross-specialty implications and connections",
-                "medical_keywords": ["List of 10-15 relevant medical keywords across all research papers in this batch"],
-                "papers_analyzed": {len(batch)},
-                "batch_number": {batch_num},
-                "specialties_covered": ["List of medical specialties represented in this batch"]
-            }}
-            
-            Ensure the analysis is comprehensive and provides sufficient detail for later integration into a complete newsletter digest.
-            Return ONLY the JSON object, no additional text or explanations.
-            """
+            prompt = create_batch_analysis_prompt(batch, batch_text, batch_num)
             
             response = None
             try:
@@ -227,6 +262,52 @@ class ResearchDigest:
                 }
         
         logger.info(f"Completed batch analysis. Processed {len(self.batch_analyses)} batches.")
+
+    def get_high_interest_papers_summary(self) -> dict:
+        """
+        Generate a summary of high-interest papers (score >= 7.0) across all specialties.
+        
+        Returns:
+            dict: Summary of high-interest papers with statistics and top papers
+        """
+        all_papers = []
+        for specialty, data in self.specialty_data.items():
+            for paper in data['papers']:
+                paper['specialty'] = specialty
+                all_papers.append(paper)
+        
+        # Filter high-interest papers (score >= 7.0)
+        high_interest_papers = [p for p in all_papers if p.get('interest_score', 0) >= 7.0]
+        high_interest_papers.sort(key=lambda x: x['interest_score'], reverse=True)
+        
+        # Calculate statistics
+        total_papers = len(all_papers)
+        high_interest_count = len(high_interest_papers)
+        avg_interest_score = sum(p.get('interest_score', 0) for p in all_papers) / total_papers if total_papers > 0 else 0
+        
+        # Group by specialty
+        specialty_breakdown = {}
+        for paper in high_interest_papers:
+            specialty = paper['specialty']
+            if specialty not in specialty_breakdown:
+                specialty_breakdown[specialty] = []
+            specialty_breakdown[specialty].append(paper)
+        
+        return {
+            "total_papers": total_papers,
+            "high_interest_count": high_interest_count,
+            "high_interest_percentage": (high_interest_count / total_papers * 100) if total_papers > 0 else 0,
+            "average_interest_score": round(avg_interest_score, 2),
+            "top_papers": high_interest_papers[:10],  # Top 10 highest scoring papers
+            "specialty_breakdown": specialty_breakdown,
+            "interest_score_distribution": {
+                "9-10": len([p for p in all_papers if 9.0 <= p.get('interest_score', 0) <= 10.0]),
+                "7-8.9": len([p for p in all_papers if 7.0 <= p.get('interest_score', 0) < 9.0]),
+                "5-6.9": len([p for p in all_papers if 5.0 <= p.get('interest_score', 0) < 7.0]),
+                "3-4.9": len([p for p in all_papers if 3.0 <= p.get('interest_score', 0) < 5.0]),
+                "0-2.9": len([p for p in all_papers if 0.0 <= p.get('interest_score', 0) < 3.0])
+            }
+        }
 
     def _extract_json_from_response(self, response_content: str, expected_type: str = "object") -> any:
         """
@@ -282,6 +363,10 @@ class ResearchDigest:
         Returns:
             str: The LLM response content
         """
+        # Estimate input tokens and check rate limit
+        estimated_tokens = len(prompt) // 4 + 1000  # Add buffer for response
+        self._check_rate_limit(estimated_tokens)
+        
         # Estimate input tokens (rough approximation: 1 token ≈ 4 characters)
         input_tokens = len(prompt) // 4
         
@@ -321,13 +406,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        # Create a list of all batch analyses
-        prompt = f"""
-        Generate an AI-generated executive summary from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The summary should be 2-3 paragraphs long and focus on the key findings and implications of the research papers across all batches.
-        """
+        prompt = create_executive_summary_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "executive_summary")
@@ -362,14 +441,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate a list of key discoveries from the following batch analysis results:
-        {batch_analysis_results}
-        
-        Return the response as a JSON array of exactly 10 key discoveries across all batches.
-        Format: ["discovery 1", "discovery 2", ..., "discovery 10"]
-        IMPORTANT: Return ONLY the JSON array, no additional text or explanations.
-        """
+        prompt = create_key_discoveries_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "key_discoveries")
@@ -415,12 +487,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1-2 paragraphs on emerging trends from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The trends should be 1-2 paragraphs long and focus on the emerging trends in the research papers across all batches.
-        """
+        prompt = create_emerging_trends_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "emerging_trends")
@@ -455,12 +522,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1 paragraph on the potential impact of the research papers on medical practice and patient care from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The impact should be 1 paragraph long and focus on the potential impact of the research papers on medical practice and patient care across all batches.
-        """
+        prompt = create_medical_impact_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "medical_impact")
@@ -495,12 +557,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1-2 paragraphs on the cross-specialty implications of the research papers from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The implications should be 1-2 paragraphs long and focus on the cross-specialty implications of the research papers across all batches.
-        """
+        prompt = create_cross_specialty_insights_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "cross_specialty_insights")
@@ -535,12 +592,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1-2 paragraphs on the clinical implications of the research papers from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The implications should be 1-2 paragraphs long and focus on the clinical implications of the research papers across all batches.
-        """
+        prompt = create_clinical_implications_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "clinical_implications")
@@ -575,12 +627,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1 paragraph on the research gaps in the research papers from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The gaps should be 1 paragraph long and focus on the research gaps in the research papers across all batches.
-        """
+        prompt = create_research_gaps_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "research_gaps")
@@ -615,12 +662,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = f"""
-        Generate 1 paragraph on the future directions of the research papers from the following batch analysis results:
-        {batch_analysis_results}
-        
-        The directions should be 1 paragraph long and focus on the future directions of the research papers across all batches.
-        """
+        prompt = create_future_directions_prompt(batch_analysis_results)
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "future_directions")
@@ -635,6 +677,28 @@ class ResearchDigest:
             logger.error(f"Error generating future directions: {str(e)}")
             return "No future directions analysis available due to processing errors."
     
+    def _print_highest_rated_papers_per_specialty(self) -> None:
+        """
+        Print the title of the highest rated paper per specialty to the console.
+        """
+        print("\n" + "="*80)
+        print("HIGHEST RATED PAPERS PER SPECIALTY")
+        print("="*80)
+        
+        for specialty, data in self.specialty_data.items():
+            if not data["papers"]:
+                continue
+                
+            # Find the paper with the highest interest score in this specialty
+            highest_rated_paper = max(data["papers"], key=lambda p: p.get('interest_score', 0))
+            
+            print(f"\n{specialty.upper()}:")
+            print(f"  Title: {highest_rated_paper['title']}")
+            print(f"  Interest Score: {highest_rated_paper.get('interest_score', 'N/A')}")
+            print(f"  Authors: {', '.join(highest_rated_paper['authors'][:3])}{'...' if len(highest_rated_paper['authors']) > 3 else ''}")
+        
+        print("\n" + "="*80)
+
     def _digest_summary(self) -> dict:
         """
         Generate a comprehensive digest JSON summary from the batch analyses.
@@ -643,6 +707,9 @@ class ResearchDigest:
             dict: The digest
         """
         print("\nGenerating digest summary JSON...")
+
+        # Print highest rated papers per specialty
+        self._print_highest_rated_papers_per_specialty()
 
         # Generate the digest
         digest = {
@@ -653,7 +720,8 @@ class ResearchDigest:
             "cross_specialty_insights": self._generate_cross_specialty_insights(),
             "clinical_implications": self._generate_clinical_implications(),
             "research_gaps": self._generate_research_gaps(),
-            "future_directions": self._generate_future_directions()
+            "future_directions": self._generate_future_directions(),
+            "high_interest_papers": self.get_high_interest_papers_summary()
         }
         
         # Add missing required fields

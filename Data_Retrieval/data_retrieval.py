@@ -38,7 +38,7 @@ class ArxivClient:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
     
-    def fetch_papers(self, search_query: str, max_results: int = 50) -> List[Paper]:
+    def fetch_papers(self, search_query: str, max_results: int = 20) -> List[Paper]:
         """
         Fetch papers from arXiv API with retry logic and exponential backoff.
         

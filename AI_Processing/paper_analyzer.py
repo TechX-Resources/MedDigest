@@ -4,8 +4,11 @@ from langchain_groq import ChatGroq
 import logging
 import re
 import json
+import hashlib
 from typing import Optional
-from utils.token_monitor import TokenMonitor
+from utils.token_monitor import TokenMonitor, TokenUsage
+from .paper_scorer import PaperScorer
+from .prompts import PAPER_ANALYSIS_SYSTEM_ROLE, create_paper_analysis_prompt
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -19,29 +22,24 @@ class PaperAnalyzer:
     - Primary medical specialty
     - Key medical concepts and terminology
     - Concise summary of findings
+    - Deterministic interest score based on content analysis
     """
     
-    # Set of valid medical specialties for categorization
-    VALID_SPECIALTIES = {
-        'Cardiology', 'Oncology', 'Radiology', 'Neurology', 
-        'Surgery', 'Psychiatry', 'Endocrinology', 'General Medicine',
-        'Dermatology', 'Gastroenterology', 'Pulmonology', 'Orthopedics',
-        'Ophthalmology', 'Urology', 'Gynecology', 'Pediatrics',
-        'Emergency Medicine', 'Anesthesiology', 'Pathology', 'Immunology',
-        'Infectious Disease', 'Nephrology', 'Hematology', 'Rheumatology',
-        'Medical Imaging', 'Biomedical Engineering', 'Medical AI', 'Clinical Research'
-    }
-    
-    # System prompt that defines the AI's role and analysis requirements
-    SYSTEM_ROLE = """
-    You are an expert medical research analyst with deep knowledge across all medical specialties. 
-    Your task is to analyze medical research papers and provide accurate categorization and key insights.
-    Focus on:
-    - Identifying the primary medical specialty based on the paper's content and methodology
-    - Extracting the most relevant medical concepts and terminology
-    - Providing a concise but comprehensive summary that captures the key findings
-    Be precise and professional in your analysis.
-    """
+    # Valid medical specialties for categorization
+    VALID_SPECIALTIES = [
+        "Cardiology", "Oncology", "Neurology", "Psychiatry", "Pediatrics", "Internal Medicine",
+        "Surgery", "Emergency Medicine", "Radiology", "Pathology", "Anesthesiology", "Dermatology",
+        "Endocrinology", "Gastroenterology", "Hematology", "Infectious Disease", "Nephrology",
+        "Ophthalmology", "Orthopedics", "Otolaryngology", "Pulmonology", "Rheumatology",
+        "Urology", "Obstetrics and Gynecology", "Family Medicine", "Preventive Medicine",
+        "Public Health", "Epidemiology", "Biostatistics", "Medical Genetics", "Immunology",
+        "Pharmacology", "Toxicology", "Medical Education", "Health Policy", "Medical Ethics",
+        "Rehabilitation Medicine", "Sports Medicine", "Geriatrics", "Palliative Care",
+        "Critical Care", "Intensive Care", "Trauma Surgery", "Plastic Surgery", "Neurosurgery",
+        "Cardiothoracic Surgery", "Vascular Surgery", "Transplant Surgery", "Medical Imaging",
+        "Nuclear Medicine", "Interventional Radiology", "Radiation Oncology", "Medical Oncology",
+        "Surgical Oncology", "Gynecologic Oncology", "Pediatric Oncology", "Hematologic Oncology"
+    ]
     
     def __init__(self, api_key: str, token_monitor: Optional[TokenMonitor] = None):
         """
@@ -51,10 +49,12 @@ class PaperAnalyzer:
             api_key (str): API key for Groq LLM service
             token_monitor (Optional[TokenMonitor]): Token monitor instance for rate limiting
         """
-        self.llm = ChatGroq(api_key=api_key, model="llama3-8b-8192")
-        self.token_monitor = token_monitor or TokenMonitor(max_tokens_per_minute=16000)
+        # Use temperature=0.0 for deterministic responses
+        self.llm = ChatGroq(api_key=api_key, model="llama3-8b-8192", temperature=0.0)
+        self.token_monitor = token_monitor or TokenMonitor(max_tokens_per_minute=15500)
+        self.scorer = PaperScorer(self.llm)
     
-    def analyze_paper(self, paper: Paper) -> Optional[PaperAnalysis]:
+    def analyze_paper(self, paper: Paper) -> tuple[Optional[PaperAnalysis], Optional[TokenUsage]]:
         """
         Analyze a paper using AI to determine its specialty and key concepts.
         
@@ -62,80 +62,72 @@ class PaperAnalyzer:
             paper (Paper): The paper to analyze
             
         Returns:
-            Optional[PaperAnalysis]: Analysis results if successful, None if analysis fails
+            tuple[Optional[PaperAnalysis], Optional[TokenUsage]]: Analysis results and token usage if successful, (None, None) if analysis fails
             
         Note:
             The analysis includes specialty categorization, keyword extraction,
             and a focused summary of the paper's main findings.
         """
-        prompt = self._create_analysis_prompt(paper)
-        
+        prompt = create_paper_analysis_prompt(paper, self.VALID_SPECIALTIES)
         try:
-            # Estimate input tokens (rough approximation: 1 token ≈ 4 characters)
-            input_tokens = len(prompt) // 4
-            
+            input_text = PAPER_ANALYSIS_SYSTEM_ROLE + prompt
+            input_tokens = self.token_monitor.count_tokens(input_text)
             response = self.llm.invoke(
                 input=[
-                    {"role": "system", "content": self.SYSTEM_ROLE},
+                    {"role": "system", "content": PAPER_ANALYSIS_SYSTEM_ROLE},
                     {"role": "user", "content": prompt}
                 ]
             )
+            output_tokens = self.token_monitor.count_tokens(str(response.content))
+            usage = self.token_monitor.record_usage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens
+            )
             
-            # Estimate output tokens
-            output_tokens = len(response.content) // 4
-            
-            # Record token usage with enhanced tracking
-            if self.token_monitor:
-                self.token_monitor.record_usage(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    call_type="paper_analysis",
-                    prompt_length=len(prompt),
-                    response_length=len(response.content)
+            # Parse the basic analysis
+            result = self._parse_analysis_response(str(response.content))
+            if result:
+                # Calculate deterministic interest score using the PaperScorer
+                interest_score, score_breakdown = self.scorer.calculate_interest_score(paper, result)
+                # Update the analysis with the calculated score
+                result = PaperAnalysis(
+                    specialty=result.specialty,
+                    keywords=result.keywords,
+                    focus=result.focus,
+                    interest_score=interest_score,
+                    score_breakdown=score_breakdown # Add score breakdown to analysis
                 )
             
-            return self._parse_analysis_response(response.content)
+            return result, usage
         except Exception as e:
             logger.error(f"Error analyzing paper {paper.paper_id}: {str(e)}")
-            return None
+            return None, None
     
-    def _create_analysis_prompt(self, paper: Paper) -> str:
+    def get_high_interest_papers(self, papers_with_analyses: list) -> list:
         """
-        Create the prompt for paper analysis.
+        Filter papers to get only those with high interest scores (>= 7.0).
         
         Args:
-            paper (Paper): The paper to analyze
+            papers_with_analyses (list): List of papers with their analysis results
             
         Returns:
-            str: Formatted prompt for the LLM
+            list: Papers with high interest scores, sorted by score (highest first)
+        """
+        return self.scorer.get_high_interest_papers(papers_with_analyses)
+    
+    def get_papers_by_interest_range(self, papers_with_analyses: list, min_score: float = 0.0, max_score: float = 10.0) -> list:
+        """
+        Get papers within a specific interest score range.
+        
+        Args:
+            papers_with_analyses (list): List of papers with their analysis results
+            min_score (float): Minimum interest score (inclusive)
+            max_score (float): Maximum interest score (inclusive)
             
-        Note:
-            The prompt includes paper metadata and specific instructions
-            for the analysis format and requirements.
+        Returns:
+            list: Papers within the specified interest score range, sorted by score
         """
-        return f"""
-        Analyze this medical research paper and provide a JSON response with the exact structure shown below.
-        
-        Title: {paper.title}
-        Abstract: {paper.abstract}
-        Conclusion: {paper.conclusion}
-        Authors: {', '.join(paper.authors)}
-        arXiv Categories: {', '.join(paper.categories)}
-        
-        Instructions:
-        1. Write a 2-3 sentence summary of the paper's key findings
-        2. Identify the primary medical specialty from this list: {', '.join(sorted(self.VALID_SPECIALTIES))}
-        3. Extract 5 key medical concepts/terms from this research
-        
-        IMPORTANT: Return ONLY a valid JSON object with this exact structure:
-        {{
-            "summary": "2-3 sentence summary of the paper's key findings",
-            "specialty": "exact specialty name from the provided list",
-            "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
-        }}
-        
-        Do not include any text before or after the JSON object. Ensure all quotes are properly escaped.
-        """
+        return self.scorer.get_papers_by_interest_range(papers_with_analyses, min_score, max_score)
     
     def _parse_analysis_response(self, response: str) -> Optional[PaperAnalysis]:
         """
@@ -206,10 +198,12 @@ class PaperAnalyzer:
                     logger.error(f"Invalid specialty: {specialty}")
                     return None
             
+            # Return analysis without interest score (will be calculated separately)
             return PaperAnalysis(
                 specialty=matched_specialty,
                 keywords=keywords,
-                focus=summary
+                focus=summary,
+                interest_score=0.0  # Placeholder, will be calculated
             )
             
         except json.JSONDecodeError as e:
