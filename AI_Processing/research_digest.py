@@ -9,15 +9,15 @@ import json
 import re
 import time
 from .prompts import (
-    create_batch_analysis_prompt,
-    create_executive_summary_prompt,
-    create_key_discoveries_prompt,
-    create_emerging_trends_prompt,
-    create_medical_impact_prompt,
-    create_cross_specialty_insights_prompt,
-    create_clinical_implications_prompt,
-    create_research_gaps_prompt,
-    create_future_directions_prompt
+    BATCH_ANALYSIS_PROMPT,
+    EXECUTIVE_SUMMARY_PROMPT,
+    KEY_DISCOVERIES_PROMPT,
+    EMERGING_TRENDS_PROMPT,
+    MEDICAL_IMPACT_PROMPT,
+    CROSS_SPECIALTY_INSIGHTS_PROMPT,
+    CLINICAL_IMPLICATIONS_PROMPT,
+    RESEARCH_GAPS_PROMPT,
+    FUTURE_DIRECTIONS_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,11 @@ class ResearchDigest:
             estimated_tokens = len(batch_text) // 4 + 2000  # Add buffer for prompt and response
             self._check_rate_limit(estimated_tokens)
             
-            prompt = create_batch_analysis_prompt(batch, batch_text, batch_num)
+            prompt = BATCH_ANALYSIS_PROMPT.format(
+                batch_size=len(batch),
+                batch_text=batch_text,
+                batch_num=batch_num
+            )
             
             response = None
             try:
@@ -406,7 +410,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_executive_summary_prompt(batch_analysis_results)
+        prompt = EXECUTIVE_SUMMARY_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "executive_summary")
@@ -441,7 +445,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_key_discoveries_prompt(batch_analysis_results)
+        prompt = KEY_DISCOVERIES_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "key_discoveries")
@@ -487,7 +491,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_emerging_trends_prompt(batch_analysis_results)
+        prompt = EMERGING_TRENDS_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "emerging_trends")
@@ -522,7 +526,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_medical_impact_prompt(batch_analysis_results)
+        prompt = MEDICAL_IMPACT_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "medical_impact")
@@ -557,7 +561,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_cross_specialty_insights_prompt(batch_analysis_results)
+        prompt = CROSS_SPECIALTY_INSIGHTS_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "cross_specialty_insights")
@@ -592,7 +596,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_clinical_implications_prompt(batch_analysis_results)
+        prompt = CLINICAL_IMPLICATIONS_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "clinical_implications")
@@ -627,7 +631,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_research_gaps_prompt(batch_analysis_results)
+        prompt = RESEARCH_GAPS_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "research_gaps")
@@ -662,7 +666,7 @@ class ResearchDigest:
             else:
                 logger.warning(f"Batch {batch_num} has no analysis results, skipping...")
 
-        prompt = create_future_directions_prompt(batch_analysis_results)
+        prompt = FUTURE_DIRECTIONS_PROMPT.format(batch_analysis_results=json.dumps(batch_analysis_results, indent=2))
         
         try:
             response_content = self._make_llm_call_with_monitoring(prompt, "future_directions")

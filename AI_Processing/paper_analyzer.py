@@ -8,7 +8,7 @@ import hashlib
 from typing import Optional
 from utils.token_monitor import TokenMonitor, TokenUsage
 from .paper_scorer import PaperScorer
-from .prompts import PAPER_ANALYSIS_SYSTEM_ROLE, create_paper_analysis_prompt
+from .prompts import PAPER_ANALYSIS_SYSTEM_ROLE, PAPER_ANALYSIS_PROMPT
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -68,7 +68,19 @@ class PaperAnalyzer:
             The analysis includes specialty categorization, keyword extraction,
             and a focused summary of the paper's main findings.
         """
-        prompt = create_paper_analysis_prompt(paper, self.VALID_SPECIALTIES)
+
+        prompt = f"""
+Analyze this medical research paper and provide a JSON response with the exact structure shown below.
+    
+    Title: {paper.title}
+    Abstract: {paper.abstract}
+    Conclusion: {paper.conclusion}
+    Authors: {', '.join(paper.authors)}
+    arXiv Categories: {', '.join(paper.categories)}
+
+{PAPER_ANALYSIS_PROMPT}
+"""
+        
         try:
             input_text = PAPER_ANALYSIS_SYSTEM_ROLE + prompt
             input_tokens = self.token_monitor.count_tokens(input_text)
