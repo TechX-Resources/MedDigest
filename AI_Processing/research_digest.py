@@ -8,7 +8,7 @@ import datetime
 import json
 import re
 import time
-from .prompts import (
+from .prompts_loader import (
     BATCH_ANALYSIS_PROMPT,
     EXECUTIVE_SUMMARY_PROMPT,
     KEY_DISCOVERIES_PROMPT,

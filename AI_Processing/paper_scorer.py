@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 import logging
 import json
 from typing import List, Dict, Tuple
-from .prompts import METHODOLOGY_DETECTION_SYSTEM_PROMPT, CREATE_PAPER_ANALYSIS_PROMPT
+from .prompts_loader import METHODOLOGY_DETECTION_SYSTEM_PROMPT, CREATE_PAPER_ANALYSIS_PROMPT
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)

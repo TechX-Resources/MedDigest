@@ -8,7 +8,7 @@ import hashlib
 from typing import Optional
 from utils.token_monitor import TokenMonitor, TokenUsage
 from .paper_scorer import PaperScorer
-from .prompts import PAPER_ANALYSIS_SYSTEM_ROLE, PAPER_ANALYSIS_PROMPT
+from .prompts_loader import PAPER_ANALYSIS_SYSTEM_ROLE, PAPER_ANALYSIS_PROMPT
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)

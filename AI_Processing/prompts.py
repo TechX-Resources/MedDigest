@@ -74,7 +74,7 @@ ANALYSIS REQUIREMENTS:
 
     PROVIDE YOUR ANALYSIS IN THE FOLLOWING JSON FORMAT. Return ONLY valid JSON, no additional text:
 
-    {
+    {{
         "batch_summary": "2-3 paragraph summary focusing on key findings and implications for current medical practices",
         "significant_findings": ["List of top 5 most significant findings across all papers in this batch"],
         "major_trends": ["List of 2-3 major trends or patterns identified across multiple papers in this batch"],
@@ -84,7 +84,7 @@ ANALYSIS REQUIREMENTS:
         "papers_analyzed": {batch_size},
         "batch_number": {batch_num},
         "specialties_covered": ["List of medical specialties represented in this batch"]
-    }
+    }}
     
     Ensure the analysis is comprehensive and provides sufficient detail for later integration into a complete newsletter digest.
     Return ONLY the JSON object, no additional text or explanations.
