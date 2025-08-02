@@ -5,7 +5,7 @@ This module provides Firebase Firestore operations for storing research digests.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import firebase_admin
 from firebase_admin import credentials, firestore
 from firebase_admin.exceptions import FirebaseError
@@ -87,6 +87,126 @@ class FirebaseClient:
         except Exception as e:
             logger.error(f"Failed to store research digest: {str(e)}")
             return False
+        
+    def store_user_subscription(self, user_id: str, subscription_data: Dict[str, Any]) -> bool:
+        """
+        Store a user subscription in Firestore.
+        """
+        try:
+            subscription_ref = self.db.collection('user_signups').document(user_id)
+            subscription_ref.set(subscription_data)
+            logger.info(f"Stored user subscription: {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store user subscription: {str(e)}")
+            return False
+        
+    def store_paper_analysis(self, paper_id: str, analysis: Dict[str, Any]) -> bool:
+        """
+        Store a paper analysis in Firestore.
+        
+        Args:
+            paper_id (str): Unique identifier for the paper
+            analysis (Dict[str, Any]): Analysis data to store
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Store in paper_analyses collection with paper_id as document ID
+            analysis_ref = self.db.collection('paper_analyses').document(paper_id)
+            
+            # Add timestamp for when the analysis was stored
+            analysis['stored_at'] = firestore.SERVER_TIMESTAMP
+            
+            analysis_ref.set(analysis)
+            logger.info(f"Stored paper analysis for paper ID: {paper_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store paper analysis for paper ID {paper_id}: {str(e)}")
+            return False
+    
+    def get_paper_analysis(self, paper_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a paper analysis from Firestore.
+        
+        Args:
+            paper_id (str): ID of the paper to retrieve analysis for
+            
+        Returns:
+            Optional[Dict[str, Any]]: Analysis data if found, None otherwise
+        """
+        try:
+            analysis_ref = self.db.collection('paper_analyses').document(paper_id)
+            analysis_doc = analysis_ref.get()
+            
+            if analysis_doc.exists:
+                return analysis_doc.to_dict()
+            else:
+                logger.warning(f"Paper analysis not found: {paper_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to retrieve paper analysis {paper_id}: {str(e)}")
+            return None
+    
+    def get_analyses_by_specialty(self, specialty: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Retrieve paper analyses filtered by specialty.
+        
+        Args:
+            specialty (str): Medical specialty to filter by
+            limit (int): Maximum number of analyses to return
+            
+        Returns:
+            List[Dict[str, Any]]: List of analysis data
+        """
+        try:
+            analyses_ref = self.db.collection('paper_analyses')
+            query = analyses_ref.where('specialty', '==', specialty).limit(limit)
+            docs = query.stream()
+            
+            analyses = []
+            for doc in docs:
+                analysis_data = doc.to_dict()
+                analysis_data['paper_id'] = doc.id
+                analyses.append(analysis_data)
+            
+            logger.info(f"Retrieved {len(analyses)} analyses for specialty: {specialty}")
+            return analyses
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve analyses for specialty {specialty}: {str(e)}")
+            return []
+    
+    def get_high_interest_analyses(self, min_score: float = 7.0, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Retrieve paper analyses with high interest scores.
+        
+        Args:
+            min_score (float): Minimum interest score threshold
+            limit (int): Maximum number of analyses to return
+            
+        Returns:
+            List[Dict[str, Any]]: List of high-interest analysis data
+        """
+        try:
+            analyses_ref = self.db.collection('paper_analyses')
+            query = analyses_ref.where('interest_score', '>=', min_score).order_by('interest_score', direction=firestore.Query.DESCENDING).limit(limit)
+            docs = query.stream()
+            
+            analyses = []
+            for doc in docs:
+                analysis_data = doc.to_dict()
+                analysis_data['paper_id'] = doc.id
+                analyses.append(analysis_data)
+            
+            logger.info(f"Retrieved {len(analyses)} high-interest analyses (score >= {min_score})")
+            return analyses
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve high-interest analyses: {str(e)}")
+            return []
     
     def get_digest(self, digest_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -112,3 +232,22 @@ class FirebaseClient:
             logger.error(f"Failed to retrieve digest {digest_id}: {str(e)}")
             return None
     
+    def get_all_user_subscriptions(self) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve all user subscriptions from Firestore.
+        """
+        try:
+            subscriptions_ref = self.db.collection('user_signups')
+            docs = subscriptions_ref.stream()
+            
+            subscriptions = {}
+            for doc in docs:
+                subscription_data = doc.to_dict()
+                subscriptions[doc.id] = subscription_data
+            
+            logger.info(f"Retrieved {len(subscriptions)} user subscriptions")
+            return subscriptions
+                
+        except Exception as e:
+            logger.error(f"Failed to retrieve user subscriptions: {str(e)}")
+            return None

@@ -46,14 +46,6 @@ class ResearchDigest:
         """
         self.arxiv_client = ArxivClient()
         self.token_monitor = TokenMonitor(max_tokens_per_minute=16000)
-        self.analyzer = PaperAnalyzer(api_key, token_monitor=self.token_monitor)
-        self.llm = self.analyzer.llm
-        self.specialty_data: Dict[str, Dict] = {}
-        self.batch_analyses: Dict[int, Dict] = {}
-        self.rate_limit_threshold = 14000  # Sleep when approaching 14k tokens (leaving 2k buffer)
-        self.current_minute_tokens = 0
-        self.minute_start_time = time.time()
-        self.id = str(uuid.uuid4())  # Generate unique ID for this digest
         
         # Initialize Firebase client if configuration is available
         try:
@@ -65,6 +57,16 @@ class ResearchDigest:
             logger.warning(f"Firebase not available: {str(e)}")
             self.firebase_client = None
             self.firebase_available = False
+        
+        # Initialize analyzer with Firebase client if available
+        self.analyzer = PaperAnalyzer(api_key, token_monitor=self.token_monitor, firebase_client=self.firebase_client)
+        self.llm = self.analyzer.llm
+        self.specialty_data: Dict[str, Dict] = {}
+        self.batch_analyses: Dict[int, Dict] = {}
+        self.rate_limit_threshold = 14000  # Sleep when approaching 14k tokens (leaving 2k buffer)
+        self.current_minute_tokens = 0
+        self.minute_start_time = time.time()
+        self.id = str(uuid.uuid4())  # Generate unique ID for this digest
 
     def _check_rate_limit(self, estimated_tokens: int) -> None:
         """
@@ -748,20 +750,34 @@ class ResearchDigest:
         # Calculate total papers from specialty data
         total_papers = sum(len(data["papers"]) for data in self.specialty_data.values())
         digest["total_papers"] = total_papers
-        
-        # Add papers list for newsletter compatibility
-        digest["papers"] = []
-        for specialty, data in self.specialty_data.items():
-            for paper in data["papers"]:
-                paper_copy = paper.copy()
-                paper_copy["specialty"] = specialty
-                digest["papers"].append(paper_copy)
 
-        # Store the digest in Firebase
+        # Always store the digest in Firebase when available
         if self.firebase_available and self.firebase_client:
             try:
-                # Use the Firebase client method to store the digest
-                digest_data = self.to_dict()
+                # Clean the data for Firebase storage
+                def clean_value(value):
+                    if isinstance(value, (str, int, float, bool, type(None))):
+                        return value
+                    elif isinstance(value, (list, tuple)):
+                        return [clean_value(item) for item in value]
+                    elif isinstance(value, dict):
+                        return {str(k): clean_value(v) for k, v in value.items()}
+                    elif hasattr(value, '__dict__'):
+                        return str(value)
+                    else:
+                        return str(value)
+                
+                # Clean the digest data
+                cleaned_digest = clean_value(digest)
+                
+                # Prepare storage format
+                digest_data = {
+                    "id": str(self.id),
+                    "date_generated": datetime.datetime.now().isoformat(),
+                    "total_papers": total_papers,
+                    "digest_summary": cleaned_digest
+                }
+                
                 logger.info(f"Attempting to store digest with ID: {self.id}")
                 logger.info(f"Digest data keys: {list(digest_data.keys())}")
                 
@@ -778,34 +794,3 @@ class ResearchDigest:
             logger.warning("Firebase not available, skipping storage of digest.")
 
         return digest
-
-    def to_dict(self) -> Dict:
-        """
-        Convert the digest to a dictionary format for storage.
-        
-        Returns:
-            Dict: Dictionary representation of the digest
-        """
-        # Clean the data to ensure it's serializable for Firestore
-        def clean_value(value):
-            if isinstance(value, (str, int, float, bool, type(None))):
-                return value
-            elif isinstance(value, (list, tuple)):
-                return [clean_value(item) for item in value]
-            elif isinstance(value, dict):
-                return {str(k): clean_value(v) for k, v in value.items()}
-            elif hasattr(value, '__dict__'):
-                return str(value)
-            else:
-                return str(value)
-        
-        digest_data = {
-            "id": str(self.id),
-            "date_generated": datetime.datetime.now().isoformat(),
-            "total_papers": sum(len(data["papers"]) for data in self.specialty_data.values()),
-            "specialty_data": clean_value(self.specialty_data),
-            "batch_analyses": clean_value(self.batch_analyses),
-            "digest_summary": clean_value(getattr(self, 'digest_json', {}))
-        }
-        
-        return digest_data

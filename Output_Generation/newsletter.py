@@ -10,12 +10,13 @@ class Newsletter:
 
     def __init__(self, digest: ResearchDigest):
         self.digest = digest
+        self.newsletter_content = None
 
-    def generate_newsletter(self) -> None:
+    def generate_newsletter(self) -> str:
         """Generate a newsletter from the research digest JSON."""
         if not hasattr(self.digest, 'digest_json'):
             logger.error("No digest JSON available. Run generate_digest() first.")
-            return
+            return None
 
         data = self.digest.digest_json
 
@@ -27,7 +28,7 @@ class Newsletter:
         newsletter_lines.append("="*80)
         newsletter_lines.append(" "*18 + "Curated Insights from the Latest Medical Literature")
         newsletter_lines.append("="*80)
-        newsletter_lines.append(f"\nDate: {data['date_generated']}   |   Total Papers Analyzed: {data['total_papers']}")
+        newsletter_lines.append(f"\nDate: {data.get('date_generated', 'Unknown')}   |   Total Papers Analyzed: {data.get('total_papers', 0)}")
         newsletter_lines.append("="*80)
 
         # Executive Summary
@@ -117,28 +118,44 @@ class Newsletter:
             newsletter_lines.append("No future directions available.")
         newsletter_lines.append("\n" + "="*80)
 
-        # Group papers by specialty
+        # Group papers by specialty from specialty_data
         papers_by_specialty = {}
-        for paper in data['papers']:
-            specialty = paper['specialty']
-            if specialty not in papers_by_specialty:
-                papers_by_specialty[specialty] = []
-            papers_by_specialty[specialty].append(paper)
+        if hasattr(self.digest, 'specialty_data'):
+            for specialty, specialty_info in self.digest.specialty_data.items():
+                papers_by_specialty[specialty] = specialty_info.get('papers', [])
+        else:
+            # Fallback: try to get papers from digest JSON if available
+            papers = data.get('papers', [])
+            if papers:
+                for paper in papers:
+                    specialty = paper.get('specialty', 'Unknown')
+                    if specialty not in papers_by_specialty:
+                        papers_by_specialty[specialty] = []
+                    papers_by_specialty[specialty].append(paper)
 
         # Table of Contents
         newsletter_lines.append("\nTABLE OF CONTENTS")
         newsletter_lines.append("-"*80)
-        for specialty, papers in sorted(papers_by_specialty.items()):
-            newsletter_lines.append(f"• {specialty} ({len(papers)} papers)")
+        if papers_by_specialty:
+            for specialty, papers in sorted(papers_by_specialty.items()):
+                newsletter_lines.append(f"• {specialty} ({len(papers)} papers)")
+        else:
+            newsletter_lines.append("• No papers available for this digest")
         newsletter_lines.append("="*80)
 
         # Specialty Sections
-        for specialty, papers in sorted(papers_by_specialty.items()):
-            newsletter_lines.append(f"\n{specialty.upper()}")
+        if papers_by_specialty:
+            for specialty, papers in sorted(papers_by_specialty.items()):
+                newsletter_lines.append(f"\n{specialty.upper()}")
+                newsletter_lines.append("-"*80)
+                newsletter_lines.append(f"Number of papers this week: {len(papers)}")
+                newsletter_lines.append(" ")
+                newsletter_lines.append("(See full paper details in the online supplement)")
+                newsletter_lines.append("="*80)
+        else:
+            newsletter_lines.append("\nPAPER ANALYSIS")
             newsletter_lines.append("-"*80)
-            newsletter_lines.append(f"Number of papers this week: {len(papers)}")
-            newsletter_lines.append(" ")
-            newsletter_lines.append("(See full paper details in the online supplement)")
+            newsletter_lines.append("No papers available for detailed analysis.")
             newsletter_lines.append("="*80)
 
         # Footer
@@ -148,9 +165,19 @@ class Newsletter:
         newsletter_lines.append("="*80)
         newsletter_lines.append(f"\nGenerated on: {datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')}")
 
+        # Store the newsletter content for email sending
+        self.newsletter_content = '\n'.join(newsletter_lines)
+
+        # Create Newsletters directory if it doesn't exist
+        import os
+        os.makedirs("Newsletters", exist_ok=True)
+
         # Save to file
         filename = f"Newsletters/newsletter_{datetime.datetime.now().strftime('%m_%d_%Y')}.txt"
         with open(filename, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(newsletter_lines))
+            f.write(self.newsletter_content)
 
         logger.info(f"\nNewsletter saved to: {filename}")
+        
+        # Return the newsletter content for email sending
+        return self.newsletter_content
