@@ -6,6 +6,10 @@
 serviceAccountKey.json
 *.json
 
+# Email credentials
+credentials.json
+token.pickle
+
 # Python
 __pycache__/
 *.py[cod]

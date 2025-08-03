@@ -41,18 +41,20 @@ class PaperAnalyzer:
         "Surgical Oncology", "Gynecologic Oncology", "Pediatric Oncology", "Hematologic Oncology"
     ]
     
-    def __init__(self, api_key: str, token_monitor: Optional[TokenMonitor] = None):
+    def __init__(self, api_key: str, token_monitor: Optional[TokenMonitor] = None, firebase_client=None):
         """
         Initialize the paper analyzer with Groq LLM.
         
         Args:
             api_key (str): API key for Groq LLM service
             token_monitor (Optional[TokenMonitor]): Token monitor instance for rate limiting
+            firebase_client: Firebase client instance for storing analyses
         """
         # Use temperature=0.0 for deterministic responses
         self.llm = ChatGroq(api_key=api_key, model="llama3-8b-8192", temperature=0.0)
         self.token_monitor = token_monitor or TokenMonitor(max_tokens_per_minute=15500)
         self.scorer = PaperScorer(self.llm)
+        self.firebase_client = firebase_client
     
     def analyze_paper(self, paper: Paper) -> tuple[Optional[PaperAnalysis], Optional[TokenUsage]]:
         """
@@ -109,6 +111,10 @@ Analyze this medical research paper and provide a JSON response with the exact s
                     interest_score=interest_score,
                     score_breakdown=score_breakdown # Add score breakdown to analysis
                 )
+                
+                # Store the analysis to database if Firebase client is available
+                if self.firebase_client:
+                    self._store_analysis_to_database(paper, result)
             
             return result, usage
         except Exception as e:
@@ -226,3 +232,37 @@ Analyze this medical research paper and provide a JSON response with the exact s
             logger.error(f"Error parsing analysis response: {str(e)}")
             logger.error(f"Response content: {response[:300]}...")
             return None
+
+    def _store_analysis_to_database(self, paper: Paper, analysis: PaperAnalysis) -> None:
+        """
+        Store the paper analysis to the database.
+        
+        Args:
+            paper (Paper): The analyzed paper
+            analysis (PaperAnalysis): The analysis results
+        """
+        try:
+            # Convert analysis to dictionary format for storage
+            analysis_data = {
+                "paper_id": paper.paper_id,
+                "title": paper.title,
+                "authors": paper.authors,
+                "categories": paper.categories,
+                "published": paper.published.isoformat(),
+                "specialty": analysis.specialty,
+                "keywords": analysis.keywords,
+                "focus": analysis.focus,
+                "interest_score": analysis.interest_score,
+                "score_breakdown": analysis.score_breakdown,
+                "analysis_timestamp": paper.published.isoformat()  # Use paper publication date as timestamp
+            }
+            
+            # Store to Firebase
+            success = self.firebase_client.store_paper_analysis(paper.paper_id, analysis_data)
+            if success:
+                logger.info(f"Stored analysis for paper {paper.paper_id} to database")
+            else:
+                logger.warning(f"Failed to store analysis for paper {paper.paper_id} to database")
+                
+        except Exception as e:
+            logger.error(f"Error storing analysis for paper {paper.paper_id}: {str(e)}")

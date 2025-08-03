@@ -1,67 +1,55 @@
-# Standard library imports for core functionality
-import datetime
-import logging
-import requests
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from typing import List, Dict, Set, Optional
-from urllib.parse import urlencode
+#!/usr/bin/env python3
+"""
+MedDigest - Main Entry Point
 
-# Third-party imports for AI and environment management
-from langchain_groq import ChatGroq
-import time
-from dotenv import load_dotenv
-import os
-import json
-import re
+This module serves as the main entry point for the MedDigest application.
+It orchestrates the research digest generation and newsletter distribution process.
+"""
+
+import logging
+import sys
 
 # Local application imports
-from Data_Classes.classes import Paper, PaperAnalysis
-from Data_Retrieval.data_retrieval import ArxivClient
-from AI_Processing.paper_analyzer import PaperAnalyzer
-from AI_Processing.research_digest import ResearchDigest
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Configure logging with timestamp, level, and message format
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-logger = logging.getLogger(__name__)
+from newsletter_generator import generate_newsletter_workflow
+from newsletter_sender import send_newsletter_workflow
 
 
-def main():
+def setup_logging() -> logging.Logger:
+    """Configure and return a logger instance."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+        ]
+    )
+    return logging.getLogger(__name__)
+
+
+def main() -> None:
     """
-    Main entry point for the script.
+    Main entry point for the MedDigest application.
     
-    Initializes the ResearchDigest with API credentials and generates
-    a research digest of academic papers.
-    
-    Returns:
-        None
+    Orchestrates the complete workflow:
+    1. Newsletter generation (research digest + newsletter creation)
+    2. Newsletter distribution (email sending)
     """
-    # Retrieve and validate API key from environment variables
-    api_key = os.getenv('GROQ_API_KEY')
-    if not api_key:
-        logger.error("GROQ_API_KEY environment variable not set. Please set it in your .env file.")
+    global logger
+    logger = setup_logging()
+    
+    logger.info("🚀 Starting MedDigest application...")
+    
+    # Step 1: Generate newsletter
+    newsletter_content = generate_newsletter_workflow()
+    if not newsletter_content:
+        logger.error("❌ Newsletter generation failed. Exiting.")
         return
+    
+    # Step 2: Send newsletter email
+    send_newsletter_workflow(newsletter_content)
+    
+    logger.info("🎉 MedDigest application completed successfully!")
 
-    # Initialize and run the research digest generation
-    digest = ResearchDigest(api_key)
-    digest_json = digest.generate_digest()
-    digest.digest_json = digest_json  # Store the digest JSON for Newsletter
 
-    # Print token usage summary
-    digest.token_monitor.print_usage_summary()
-
-    # Generate the newsletter
-    from Output_Generation.newsletter import Newsletter
-    newsletter = Newsletter(digest)
-    newsletter.generate_newsletter()
-
-# Entry point guard to ensure script runs only when executed directly
 if __name__ == "__main__":
     main()
