@@ -45,7 +45,7 @@ class ResearchDigest:
             api_key (str): API key for the AI service
         """
         self.arxiv_client = ArxivClient()
-        self.token_monitor = TokenMonitor(max_tokens_per_minute=16000)
+        self.token_monitor = TokenMonitor(max_tokens_per_minute=16000, warning_threshold=0.9)
         
         # Initialize Firebase client if configuration is available
         try:
@@ -63,39 +63,7 @@ class ResearchDigest:
         self.llm = self.analyzer.llm
         self.specialty_data: Dict[str, Dict] = {}
         self.batch_analyses: Dict[int, Dict] = {}
-        self.rate_limit_threshold = 14000  # Sleep when approaching 14k tokens (leaving 2k buffer)
-        self.current_minute_tokens = 0
-        self.minute_start_time = time.time()
         self.id = str(uuid.uuid4())  # Generate unique ID for this digest
-
-    def _check_rate_limit(self, estimated_tokens: int) -> None:
-        """
-        Check if we're approaching the rate limit and sleep if necessary.
-        
-        Args:
-            estimated_tokens (int): Estimated tokens for the next operation
-        """
-        current_time = time.time()
-        
-        # Reset counter if a new minute has started
-        if current_time - self.minute_start_time >= 60:
-            self.current_minute_tokens = 0
-            self.minute_start_time = current_time
-        
-        # Check if adding these tokens would exceed our threshold
-        if self.current_minute_tokens + estimated_tokens > self.rate_limit_threshold:
-            # Calculate how long to sleep until the next minute
-            time_elapsed = current_time - self.minute_start_time
-            sleep_time = 60 - time_elapsed
-            
-            if sleep_time > 0:
-                logger.info(f"Approaching rate limit ({self.current_minute_tokens} tokens used). Sleeping for {sleep_time:.1f} seconds...")
-                time.sleep(sleep_time)
-                self.current_minute_tokens = 0
-                self.minute_start_time = time.time()
-        
-        # Update token count for this minute
-        self.current_minute_tokens += estimated_tokens
 
     def generate_digest(self, search_query: str = "all:medical") -> Dict:
         """
@@ -118,10 +86,12 @@ class ResearchDigest:
         self._analyze_papers(papers)
         self._batch_analyze_papers(self.specialty_data)
         
-        # Token monitor handles rate limiting automatically, no need for manual sleep
-
         # Generate and store the digest
         self.digest_json = self._digest_summary()
+        
+        # Print token usage summary
+        self._print_token_usage_summary()
+        
         return self.digest_json
     
     def _analyze_papers(self, papers: List[Paper]) -> None:
@@ -136,10 +106,7 @@ class ResearchDigest:
         for i, paper in enumerate(papers, 1):
             logger.info(f"Analyzing paper {i}/{len(papers)}: {paper.title[:80]}...")
             
-            # Estimate tokens for this paper analysis (rough approximation)
-            estimated_tokens = len(paper.title + paper.abstract + paper.conclusion) // 4 + 500  # Add buffer for prompt and response
-            self._check_rate_limit(estimated_tokens)
-            
+            # The paper analyzer now handles its own rate limiting
             result = self.analyzer.analyze_paper(paper)
             if not result or result[0] is None:
                 continue
@@ -222,8 +189,13 @@ class ResearchDigest:
             batch_text = "\n".join(batch_info)
             
             # Estimate tokens for batch analysis
-            estimated_tokens = len(batch_text) // 4 + 2000  # Add buffer for prompt and response
-            self._check_rate_limit(estimated_tokens)
+            estimated_tokens = self.token_monitor.count_tokens(batch_text) + 2000  # Add buffer for prompt and response
+            
+            # Check if we can make the call and wait if needed
+            if not self.token_monitor.can_make_call(estimated_tokens):
+                wait_time = self.token_monitor.wait_if_needed(estimated_tokens)
+                if wait_time > 0:
+                    logger.info(f"Batch {batch_num}: Waited {wait_time:.1f}s for rate limit")
             
             prompt = BATCH_ANALYSIS_PROMPT.format(
                 batch_size=len(batch),
@@ -233,14 +205,14 @@ class ResearchDigest:
             
             response = None
             try:
-                # Estimate input tokens (rough approximation: 1 token ≈ 4 characters)
-                input_tokens = len(prompt) // 4
+                # Estimate input tokens
+                input_tokens = self.token_monitor.count_tokens(prompt)
                 
                 # Get AI analysis for this batch
                 response = self.llm.invoke(prompt)
                 
                 # Estimate output tokens
-                output_tokens = len(response.content) // 4
+                output_tokens = self.token_monitor.count_tokens(response.content)
                 
                 # Record token usage with enhanced tracking
                 self.token_monitor.record_usage(
@@ -383,17 +355,22 @@ class ResearchDigest:
         Returns:
             str: The LLM response content
         """
-        # Estimate input tokens and check rate limit
-        estimated_tokens = len(prompt) // 4 + 1000  # Add buffer for response
-        self._check_rate_limit(estimated_tokens)
+        # Estimate tokens and check rate limit
+        estimated_tokens = self.token_monitor.count_tokens(prompt) + 1000  # Add buffer for response
         
-        # Estimate input tokens (rough approximation: 1 token ≈ 4 characters)
-        input_tokens = len(prompt) // 4
+        # Check if we can make the call and wait if needed
+        if not self.token_monitor.can_make_call(estimated_tokens):
+            wait_time = self.token_monitor.wait_if_needed(estimated_tokens)
+            if wait_time > 0:
+                logger.info(f"{call_type}: Waited {wait_time:.1f}s for rate limit")
+        
+        # Estimate input tokens
+        input_tokens = self.token_monitor.count_tokens(prompt)
         
         response = self.llm.invoke(prompt)
         
         # Estimate output tokens
-        output_tokens = len(response.content) // 4
+        output_tokens = self.token_monitor.count_tokens(response.content)
         
         # Record token usage with enhanced tracking
         self.token_monitor.record_usage(
@@ -718,6 +695,30 @@ class ResearchDigest:
             print(f"  Authors: {', '.join(highest_rated_paper['authors'][:3])}{'...' if len(highest_rated_paper['authors']) > 3 else ''}")
         
         print("\n" + "="*80)
+
+    def _print_token_usage_summary(self) -> None:
+        """Print a summary of token usage for this digest generation."""
+        print("\n" + "="*80)
+        print("TOKEN USAGE SUMMARY")
+        print("="*80)
+        
+        # Get current usage
+        current_usage = self.token_monitor.get_current_usage()
+        print(f"Current minute usage: {current_usage['tokens_used']}/{self.token_monitor.max_tokens_per_minute} tokens")
+        print(f"Usage ratio: {current_usage['usage_ratio']:.1%}")
+        print(f"Time remaining in current minute: {current_usage['time_remaining']:.1f}s")
+        
+        # Get rate limiting stats
+        rate_stats = self.token_monitor.get_rate_limiting_stats()
+        print(f"Rate limit hits: {rate_stats['rate_limit_hits']}")
+        print(f"Total sleep time: {rate_stats['total_sleep_time']:.1f}s")
+        print(f"Average sleep per hit: {rate_stats['average_sleep_per_hit']:.1f}s")
+        print(f"Efficiency ratio: {rate_stats['efficiency_ratio']:.1%}")
+        
+        # Print detailed stats
+        self.token_monitor.print_usage_summary()
+        
+        print("="*80)
 
     def _digest_summary(self) -> dict:
         """

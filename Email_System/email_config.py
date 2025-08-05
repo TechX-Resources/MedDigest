@@ -3,6 +3,7 @@ import pickle
 from email.message import EmailMessage
 from pathlib import Path
 import logging
+import markdown
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -78,13 +79,14 @@ def get_gmail_service():
         raise
 
 
-def gmail_send_message(to_email, subject, body):
+def gmail_send_message(to_email, subject, body, is_markdown=False):
     """Create and send an email message.
     
     Args:
         to_email (str): Recipient email address
         subject (str): Email subject line
         body (str): Email body content
+        is_markdown (bool): Whether the body content is markdown that should be converted to HTML
     
     Returns:
         dict: Message object, including message id, or None if error
@@ -93,6 +95,7 @@ def gmail_send_message(to_email, subject, body):
         logger.info(f"Attempting to send email to: {to_email}")
         logger.info(f"Subject: {subject}")
         logger.info(f"Body length: {len(body)} characters")
+        logger.info(f"Is markdown: {is_markdown}")
         
         # Clean the body content to ensure it's safe for email
         if body is None:
@@ -114,7 +117,40 @@ def gmail_send_message(to_email, subject, body):
             
         message = EmailMessage()
 
-        message.set_content(body)
+        if is_markdown:
+            # Convert markdown to HTML
+            try:
+                html_body = markdown.markdown(body, extensions=['extra'])
+                # Add some basic styling
+                html_body = f"""
+                <html>
+                <head>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }}
+                        h1, h2, h3 {{ color: #2c3e50; }}
+                        h1 {{ border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+                        h2 {{ border-bottom: 1px solid #ecf0f1; padding-bottom: 5px; margin-top: 30px; }}
+                        hr {{ border: none; border-top: 1px solid #ecf0f1; margin: 20px 0; }}
+                        ul, ol {{ padding-left: 20px; }}
+                        blockquote {{ border-left: 4px solid #3498db; margin: 0; padding-left: 15px; color: #7f8c8d; }}
+                        code {{ background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px; }}
+                        pre {{ background-color: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+                    </style>
+                </head>
+                <body>
+                {html_body}
+                </body>
+                </html>
+                """
+                message.set_content(body)  # Plain text fallback
+                message.add_alternative(html_body, subtype='html')
+            except Exception as e:
+                logger.error(f"Error converting markdown to HTML: {e}")
+                # Fallback to plain text
+                message.set_content(body)
+        else:
+            message.set_content(body)
+            
         message["To"] = to_email
         message["From"] = "meddigest.newsletter@gmail.com"
         message["Subject"] = subject

@@ -85,17 +85,39 @@ Analyze this medical research paper and provide a JSON response with the exact s
         
         try:
             input_text = PAPER_ANALYSIS_SYSTEM_ROLE + prompt
-            input_tokens = self.token_monitor.count_tokens(input_text)
+            
+            # Estimate tokens for this analysis
+            estimated_tokens = self.token_monitor.count_tokens(input_text) + 1000  # Add buffer for response
+            
+            # Check if we can make the call and wait if needed
+            if not self.token_monitor.can_make_call(estimated_tokens):
+                wait_time = self.token_monitor.wait_if_needed(estimated_tokens)
+                if wait_time > 0:
+                    logger.info(f"Waited {wait_time:.1f}s for rate limit before analyzing paper")
+            
+            # Get current usage for logging
+            usage_info = self.token_monitor.get_current_usage()
+            logger.debug(f"Current usage before analysis: {usage_info['tokens_used']}/{self.token_monitor.max_tokens_per_minute}")
+            
+            # Make the LLM call
             response = self.llm.invoke(
                 input=[
                     {"role": "system", "content": PAPER_ANALYSIS_SYSTEM_ROLE},
                     {"role": "user", "content": prompt}
                 ]
             )
+            
+            # Calculate actual token usage
+            input_tokens = self.token_monitor.count_tokens(input_text)
             output_tokens = self.token_monitor.count_tokens(str(response.content))
+            
+            # Record usage with detailed tracking
             usage = self.token_monitor.record_usage(
                 input_tokens=input_tokens,
-                output_tokens=output_tokens
+                output_tokens=output_tokens,
+                call_type="paper_analysis",
+                prompt_length=len(input_text),
+                response_length=len(str(response.content))
             )
             
             # Parse the basic analysis

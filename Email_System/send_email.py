@@ -7,7 +7,7 @@ Uses the existing email configuration to send emails via Gmail API.
 from .email_config import gmail_send_message
 
 
-def send_newsletter_email(to_email, subject, body):
+def send_newsletter_email(to_email, subject, body, is_markdown=False):
     """
     Send a newsletter email using the Gmail API.
     
@@ -15,12 +15,13 @@ def send_newsletter_email(to_email, subject, body):
         to_email (str): Recipient email address
         subject (str): Email subject line
         body (str): Email body content
+        is_markdown (bool): Whether the body content is markdown
     
     Returns:
         dict: Response from Gmail API or None if error
     """
     try:
-        result = gmail_send_message(to_email, subject, body)
+        result = gmail_send_message(to_email, subject, body, is_markdown)
         if result:
             print(f"✅ Email sent successfully to {to_email}")
             return result
@@ -32,7 +33,7 @@ def send_newsletter_email(to_email, subject, body):
         return None
 
 
-def send_bulk_emails(recipients, subject, body):
+def send_bulk_emails(recipients, subject, body, is_markdown=False):
     """
     Send emails to multiple recipients.
     
@@ -40,6 +41,7 @@ def send_bulk_emails(recipients, subject, body):
         recipients (list): List of email addresses
         subject (str): Email subject line
         body (str): Email body content
+        is_markdown (bool): Whether the body content is markdown
     
     Returns:
         dict: Summary of results
@@ -51,7 +53,7 @@ def send_bulk_emails(recipients, subject, body):
     
     for recipient in recipients:
         email = recipient['email']
-        result = send_newsletter_email(email, subject, body)
+        result = send_newsletter_email(email, subject, body, is_markdown)
         if result:
             results['successful'].append(email)
         else:

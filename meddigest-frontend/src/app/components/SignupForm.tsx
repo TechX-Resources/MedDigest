@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { getApiUrl } from '../../config/api';
 
 const INTERESTS = [
   "Cardiology", "Oncology", "Neurology", "Psychiatry", "Pediatrics", "Internal Medicine",
@@ -95,7 +96,7 @@ function InterestDropdown({
               ))
             ) : (
               <div className="p-2 text-gray-500 text-sm text-center">
-                No interests found matching "{searchTerm}"
+                No interests found matching &quot;{searchTerm}&quot;
               </div>
             )}
           </div>
@@ -170,7 +171,7 @@ export default function SignupForm() {
     e.preventDefault();
     
     try {
-      const response = await fetch('http://localhost:8000/api/signup', {
+      const response = await fetch(getApiUrl('signup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,8 +188,8 @@ export default function SignupForm() {
       if (data.success) {
         setFormData({ firstName: '', lastName: '', email: '', medicalInterests: [] });
       }
-    } catch (error) {
-      setMessage('Error: Please check if API is running');
+    } catch {
+      setMessage('Failed to submit form. Please try again.');
     }
   };
 

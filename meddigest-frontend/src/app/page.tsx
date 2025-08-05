@@ -15,7 +15,7 @@ function ModernBanner() {
       <div className="max-w-5xl mx-auto px-6">
         <div className="absolute left-6 top-6 z-20">
           <Image 
-            src="/meddigest-logo.png" 
+            src="/images/meddigest-logo.png" 
             alt="MedDigest Logo" 
             width={100} 
             height={100}
@@ -65,8 +65,8 @@ function BenefitCard({
   description: string; 
 }) {
   return (
-    <div className="text-left p-6 bg-gray-50 rounded-xl border border-gray-100">
-      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+    <div className="text-center md:text-left p-6 bg-gray-50 rounded-xl border border-gray-100">
+      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mb-4 mx-auto md:mx-0">
         {icon}
       </div>
       <h4 className="text-xl font-semibold text-gray-900 mb-4">{title}</h4>
@@ -189,8 +189,8 @@ export default function Home() {
             </h2>
           </div>
           <div className="max-w-4xl mx-auto">
-            <p className="text-lg text-gray-600 leading-relaxed mb-12">
-              We automatically analyze medical research papers from arXiv's repositories, 
+            <p className="text-lg text-gray-600 leading-relaxed mb-12 text-center md:text-left">
+              We automatically analyze medical research papers from arXiv&apos;s repositories, 
               extracting key findings and trends to help healthcare professionals stay current 
               with the latest developments. Our AI-powered platform transforms complex research 
               into actionable insights, saving you hours of manual review while ensuring you 

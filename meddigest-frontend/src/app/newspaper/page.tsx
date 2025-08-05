@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import NavTabs from '../nav_tabs';
 import Image from "next/image";
+import { getApiUrl } from '../../config/api';
 
 interface Paper {
   id: string;
@@ -28,6 +29,31 @@ interface NewsletterData {
   specialty_data?: Record<string, { papers: Paper[] }>;
 }
 
+// Helper component to format text with proper line breaks
+function FormattedText({ text, className = "text-gray-700 leading-relaxed text-lg" }: { text: string, className?: string }) {
+  if (!text) return null;
+  
+  // Split text by double line breaks to create paragraphs
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
+  
+  return (
+    <div className="prose prose-gray max-w-none text-center md:text-left">
+      {paragraphs.map((paragraph, index) => (
+        <div key={index} className={index > 0 ? "mt-6" : ""}>
+          <p className={className}>
+            {paragraph.trim().split('\n').map((line, lineIndex) => (
+              <span key={lineIndex}>
+                {line}
+                {lineIndex < paragraph.split('\n').length - 1 && <br />}
+              </span>
+            ))}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NewspaperBanner({ date, totalPapers }: { date: string; totalPapers: number }) {
   const formattedDate = new Date(date).toLocaleDateString('en-US', { 
     year: 'numeric', 
@@ -45,7 +71,7 @@ function NewspaperBanner({ date, totalPapers }: { date: string; totalPapers: num
                       <div className="max-w-5xl mx-auto px-6">
           <div className="absolute left-6 top-6 z-20">
             <Image 
-              src="/meddigest-logo.png" 
+              src="/images/meddigest-logo.png" 
               alt="MedDigest Logo" 
               width={100} 
               height={100}
@@ -178,7 +204,7 @@ function ErrorState({ error }: { error: string }) {
         <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
           Make sure:
           <br />1. Python API server is running (python api.py)
-          <br />2. You've run the Python script to generate the newsletter first (python main.py)
+          <br />2. You&apos;ve run the Python script to generate the newsletter first (python main.py)
         </div>
       </div>
     </div>
@@ -193,7 +219,7 @@ export default function Newspaper() {
   useEffect(() => {
     const fetchNewsletter = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/newsletter');
+        const response = await fetch(getApiUrl('newsletter'));
         if (!response.ok) {
           throw new Error('Failed to fetch newsletter data');
         }
@@ -237,11 +263,7 @@ export default function Newspaper() {
           icon="📋"
           fallback="This week's digest includes research from various medical specialties with cutting-edge developments and clinical insights."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.executive_summary}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.executive_summary || ""} />
         </NewsletterSection>
 
         <NewsletterSection title="Key Discoveries" icon="🔬">
@@ -253,11 +275,7 @@ export default function Newspaper() {
           icon="📈"
           fallback="AI and machine learning continue to advance medical research with innovative approaches to diagnosis and treatment."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.emerging_trends}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.emerging_trends || ""} />
         </NewsletterSection>
 
         <NewsletterSection 
@@ -265,11 +283,7 @@ export default function Newspaper() {
           icon="🔗"
           fallback="Interdisciplinary collaboration continues to drive innovation across medical specialties."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.cross_specialty_insights}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.cross_specialty_insights || ""} />
         </NewsletterSection>
 
         <NewsletterSection 
@@ -277,11 +291,7 @@ export default function Newspaper() {
           icon="🏥"
           fallback="These research findings have potential implications for clinical practice and patient care."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.clinical_implications}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.clinical_implications || ""} />
         </NewsletterSection>
 
         <NewsletterSection 
@@ -289,11 +299,7 @@ export default function Newspaper() {
           icon="🔍"
           fallback="Analysis of current research gaps and areas requiring further investigation."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.research_gaps}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.research_gaps || ""} />
         </NewsletterSection>
 
         <NewsletterSection 
@@ -301,11 +307,7 @@ export default function Newspaper() {
           icon="🚀"
           fallback="Emerging directions and potential future developments in medical research."
         >
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {newsletterData.future_directions}
-            </p>
-          </div>
+          <FormattedText text={newsletterData.future_directions || ""} />
         </NewsletterSection>
 
         <NewsletterSection title="Research Categories" icon="📊">

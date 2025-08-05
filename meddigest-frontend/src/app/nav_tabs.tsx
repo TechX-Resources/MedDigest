@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function NavTabs() {
   return (
-    <nav className="w-full bg-white border-b border-gray-200 shadow-sm">
+    <nav className="w-full bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto flex justify-center gap-1 py-4 px-6">
         <Link
           href="/"

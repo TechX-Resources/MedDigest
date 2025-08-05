@@ -49,8 +49,16 @@ class FirebaseClient:
         try:
             # Check if Firebase app is already initialized
             if not firebase_admin._apps:
-                if self.config.service_account_path:
-                    # Use service account credentials
+                service_account_dict = self.config.get_service_account_dict()
+                
+                if service_account_dict:
+                    # Use service account credentials from JSON
+                    cred = credentials.Certificate(service_account_dict)
+                    firebase_admin.initialize_app(cred, {
+                        'projectId': self.config.project_id
+                    })
+                elif self.config.service_account_path:
+                    # Use service account file path (for local development)
                     cred = credentials.Certificate(self.config.service_account_path)
                     firebase_admin.initialize_app(cred, {
                         'projectId': self.config.project_id
